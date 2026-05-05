@@ -229,16 +229,33 @@ function mergeLegacyAgent(
 
 function ensureDir(filePath: string) {
   const dir = path.dirname(filePath);
-  assertNoSymlinkPathComponents(dir, resolveRequiredHomeDir());
-  fs.mkdirSync(dir, { recursive: true });
-  const dirStat = fs.lstatSync(dir);
-  if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
+  assertNoSymlinkPathComponents(dir, resolveRequiredHomeDir(), { allowLeafSymlink: true });
+
+  let effectiveDir = dir;
+  try {
+    const lstat = fs.lstatSync(dir);
+    if (lstat.isSymbolicLink()) {
+      effectiveDir = path.resolve(path.dirname(dir), fs.readlinkSync(dir));
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+  }
+
+  fs.mkdirSync(effectiveDir, { recursive: true });
+  const dirStat = fs.statSync(dir);
+  if (!dirStat.isDirectory()) {
     throw new Error(`Refusing to use unsafe exec approvals directory: ${dir}`);
   }
   return dir;
 }
 
-function assertNoSymlinkPathComponents(targetPath: string, trustedRoot: string): void {
+function assertNoSymlinkPathComponents(
+  targetPath: string,
+  trustedRoot: string,
+  options?: { allowLeafSymlink?: boolean },
+): void {
   const resolvedTarget = path.resolve(targetPath);
   const resolvedRoot = path.resolve(trustedRoot);
   if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
@@ -248,11 +265,19 @@ function assertNoSymlinkPathComponents(targetPath: string, trustedRoot: string):
   const relative = path.relative(resolvedRoot, resolvedTarget);
   const segments = relative && relative !== "." ? relative.split(path.sep) : [];
   let current = resolvedRoot;
-  for (const segment of segments) {
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]!;
     current = path.join(current, segment);
+    const isLeaf = i === segments.length - 1;
     try {
       const stat = fs.lstatSync(current);
       if (stat.isSymbolicLink()) {
+        if (isLeaf && options?.allowLeafSymlink) {
+          const realTarget = fs.statSync(current);
+          if (realTarget.isDirectory()) {
+            continue;
+          }
+        }
         throw new Error(`Refusing to traverse symlink in exec approvals path: ${current}`);
       }
     } catch (err) {
