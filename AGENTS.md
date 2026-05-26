@@ -188,4 +188,10 @@ Telegraph style. Root rules only. Read scoped `AGENTS.md` before subtree work.
 - CLI progress: `src/cli/progress.ts`; status tables: `src/terminal/table.ts`.
 - Connection/provider additions: update all UI surfaces + docs + status/config forms.
 - Provider tool schemas: prefer flat string enum helpers over `Type.Union([Type.Literal(...)])`; some providers reject `anyOf`. Not a repo-wide protocol/schema ban.
-- External messaging: no token-delta channel messages. Follow `docs/concepts/streaming.md`; preview/block streaming uses edits/chunks and preserves final/fallback delivery.
+## Operational Gotchas
+
+- **Media allowlist is enforced regardless of channel.** `openclaw message send --media <path>` only accepts paths under `~/.openclaw/{media,agents,workspace,sandboxes}` or system tmp. Always stage attachments via `cp "$file" ~/.openclaw/media/$(basename "$file")` before sending.
+
+- **OpenClaw `models.providers.X.api` requires specific enum.** The `models.providers.<name>.api` field changed from accepting `"openai"` (freeform) to requiring a strict enum: `"openai-completions" | "openai-responses" | "openai-codex-responses" | "anthropic-messages" | "google-generative-ai" | "github-copilot" | "bedrock-converse-stream" | "ollama"`. Old `"openai"` configs silently mark the entire config invalid. Fix: `"api": "openai"` → `"api": "openai-completions"` for OpenAI-compatible endpoints.
+
+- **Gateway is self-managed — use openclaw CLI, not raw launchctl.** `openclaw gateway start/stop/restart/status` is the correct lifecycle interface. The plist is installed by `openclaw gateway install`. Use `openclaw doctor --repair` for PATH/config drift. Raw `launchctl bootout/bootstrap` bypasses config-sync — prefer the CLI.
